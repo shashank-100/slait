@@ -1,6 +1,8 @@
 # AI Workflow Evaluator
 
-A lightweight tool for analyzing AI-assisted coding session transcripts and evaluating workflow quality. Built for Slait's take-home assignment.
+A lightweight **CLI tool** for analyzing AI-assisted coding session transcripts and evaluating workflow quality. Built for Slait's take-home assignment.
+
+**Format:** CLI (with optional HTML report output)
 
 ## Overview
 
