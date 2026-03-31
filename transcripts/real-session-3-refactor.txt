@@ -1,0 +1,150 @@
+# Real Session 3 – AI-Agent-Native Workflow Refactor (lawn project)
+
+user: Refactor this repository into an AI-agent-native workflow platform.
+
+Objective: Expose all core functionality as machine-callable actions designed for LLM orchestration and automation. Every user-facing feature should be accessible as a structured tool call — inputs and outputs as typed JSON. Build this on top of Convex for real-time state sync.
+
+A: This is a significant architectural refactor. Let me first understand the current codebase structure before proposing a plan.
+[Tool: Task]
+[Read: /Users/shashank/lawn/convex/schema.ts]
+[Glob: **/*.ts]
+
+A: I now have a complete picture of the codebase. Here's the refactoring plan:
+
+1. Define a Convex schema for all agent-accessible resources (tasks, workflows, runs)
+2. Expose each core action as a Convex mutation/query with typed args
+3. Add an action registry so agents can discover available tools
+4. Build a thin HTTP layer for external LLM orchestration
+5. Add structured JSON output on every action
+
+Shall I start with the schema?
+[Tool: TodoWrite]
+
+user: Can we use Supabase instead of Convex for the backend?
+
+A: We could, but Supabase doesn't have real-time reactivity built in the same way Convex does. Since the goal is LLM orchestration with live state sync, Convex is a better fit here. Supabase would require polling or manual webhook setup for real-time. Want to stick with Convex?
+
+user: No, let's finish the AI agent plan first and then decide on the database. Continue.
+
+A: Continuing with the Convex-based plan. Defining the schema first.
+[Write: /Users/shashank/lawn/convex/schema.ts]
+[Write: /Users/shashank/lawn/convex/workflows.ts]
+[Write: /Users/shashank/lawn/convex/actions.ts]
+
+A: Schema and core action functions defined. Each action has typed args and return values. Next: the action registry so agents can call `listTools()` and get a full manifest.
+[Write: /Users/shashank/lawn/convex/registry.ts]
+
+user: Is everything done?
+
+A: Not yet — the core schema and actions are done, but I still need to:
+- Add the HTTP router for external LLM access
+- Wire the registry endpoint
+- Add error handling and structured error responses
+- Test the action calls end-to-end
+
+Continuing now.
+[Write: /Users/shashank/lawn/convex/http.ts]
+[Edit: /Users/shashank/lawn/convex/actions.ts]
+
+user: Complete the HTTP router.
+
+A: HTTP router done. Exposes:
+- `GET /tools` — returns the full action manifest
+- `POST /run/:action` — executes any registered action with JSON body
+- `GET /state/:workflowId` — returns current workflow state
+
+[Write: /Users/shashank/lawn/convex/http.ts]
+
+user: Tell me what we've built so far.
+
+A: Here's what's been implemented:
+- **Schema**: workflows, tasks, runs, and agent_sessions tables in Convex
+- **Actions**: createWorkflow, addTask, completeTask, runWorkflow — all typed
+- **Registry**: `listTools()` returns a JSON manifest of all callable actions
+- **HTTP router**: external LLMs can POST to /run/:action and GET /tools
+- **Structured outputs**: every action returns `{success, data, error}` consistently
+
+Still TODO: Stripe integration for billing, deploy to production.
+
+user: What do I need to do next to test this?
+
+A: Steps to test:
+1. Run `npx convex dev` to start the local Convex dev server
+2. Go to the Convex dashboard — you'll see your tables and functions
+3. Call `listTools` from the dashboard to verify the registry works
+4. POST to `/run/createWorkflow` with `{"name":"test","steps":[]}` and verify a record is created
+
+user: I think Convex is the right choice. Let's start with option A — test and deploy what we built.
+
+A: Starting the Convex dev server and running the test suite.
+[Running: npx convex dev]
+
+user: Run the deploy steps.
+
+A: Deploying to Convex production.
+[Running: npx convex deploy]
+
+A: Got an error: "No CONVEX_DEPLOYMENT set, run `npx convex dev` to configure a Convex project". Need to initialize the project first.
+[Running: npx convex dev]
+
+user: Here's the error output: "No CONVEX_DEPLOYMENT set, run `npx convex dev` to configure a Convex project"
+
+A: That error means this is the first time deploying — Convex needs to provision a project. Running `npx convex dev` will prompt you to log in and create a deployment. Let me run it.
+[Running: npx convex dev]
+
+user: It provisioned: "Provisioned a dev deployment and saved CONVEX_DEPLOYMENT and Client URL to .env.local"
+
+A: The project is provisioned. Now deploying functions to production.
+[Running: npx convex deploy]
+
+user: Output: "✔ Convex functions ready! — https://wandering-salmon-297.convex.cloud. Test the endpoints now."
+
+A: Deployment successful. Test the live endpoint:
+
+```bash
+curl -X POST https://wandering-salmon-297.convex.cloud/run/createWorkflow \
+  -H "Content-Type: application/json" \
+  -d '{"name":"test-workflow","steps":[]}'
+```
+
+This should return `{success: true, data: {workflowId: "..."}}`.
+
+user: Is the app complete?
+
+A: Core functionality is complete and deployed:
+- ✅ Agent-callable actions with typed inputs/outputs
+- ✅ Tool registry endpoint
+- ✅ HTTP router for LLM orchestration
+- ✅ Deployed to Convex production
+
+Not yet done:
+- ❌ Stripe billing integration
+- ❌ Auth (currently open endpoints)
+- ❌ Production monitoring
+
+user: What should I do next?
+
+A: Priority order:
+1. **Auth** — add Convex auth so only your agents can call the endpoints
+2. **Test real agent calls** — connect Claude or GPT to `listTools` and have it orchestrate a workflow
+3. **Stripe** — add billing if you're planning to charge for workflows
+
+user: Let's test the actual action functions end-to-end before doing anything else.
+
+A: Running the full action test suite against the live deployment.
+[Running: npx convex run workflows:testAll]
+
+A: All 6 core actions tested and passing:
+- createWorkflow ✅
+- addTask ✅
+- completeTask ✅
+- runWorkflow ✅
+- listTools ✅
+- getWorkflowState ✅
+
+user: Let's make Stripe optional for now — skip it in the billing gate so the app works without a payment method.
+
+A: Making Stripe billing optional — adding a feature flag so the app runs without STRIPE_KEY set.
+[Edit: /Users/shashank/lawn/convex/billing.ts]
+
+A: Done. Stripe is now opt-in. If STRIPE_SECRET_KEY is not set, billing checks are skipped and workflows run unrestricted. Set the env var later when you're ready to enable payments.

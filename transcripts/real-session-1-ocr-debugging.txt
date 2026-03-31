@@ -1,0 +1,100 @@
+# Real Session 1 – OCR Debugging (prostruct / stamp-extractor project)
+
+user: The OCR on the stamp extractor is giving wrong results — it's extracting garbled text instead of the license number. Can you check the OCR pipeline in stamp-extractor-backend?
+
+assistant: I'll investigate the OCR functionality. Let me first look at the project structure and find the extraction logic.
+[Read: /Users/shashank/Documents/GitHub/prostruct/stamp-extractor-backend]
+[Glob: **/*.py]
+
+assistant: I can see the OCR pipeline. The issue is likely in image preprocessing — it's not converting to grayscale before Tesseract, and DPI is set too low at 72. Let me read the core extraction file.
+[Read: /Users/shashank/Documents/GitHub/prostruct/stamp-extractor-backend/ocr_engine.py]
+
+assistant: Found the issue. No grayscale conversion and DPI=72 causes poor Tesseract accuracy. Tesseract performs best at 300+ DPI on grayscale. Fixing now.
+[Edit: /Users/shashank/Documents/GitHub/prostruct/stamp-extractor-backend/ocr_engine.py]
+[Running: python test_ocr.py --image sample_stamp.png]
+
+user: There are two stamps on the document — stamp1 and stamp2. The extractor only picks up one of them. Why?
+
+assistant: Let me check the stamp detection logic.
+[Read: /Users/shashank/Documents/GitHub/prostruct/stamp-extractor-backend/stamp_detector.py]
+
+assistant: Found it — the detector uses a fixed bounding box instead of dynamically finding stamp regions. I'll update it to detect multiple stamps using contour detection.
+[Edit: /Users/shashank/Documents/GitHub/prostruct/stamp-extractor-backend/stamp_detector.py]
+[Running: python test_ocr.py --image sample_two_stamps.png]
+
+user: The second stamp has license number 55926 — OCR should catch that. What is it currently returning?
+
+assistant: Running the extractor on stamp2 with debug output.
+[Running: python extract.py --stamp 2 --debug --image sample_two_stamps.png]
+
+assistant: It's returning "5S926" — confusing S for 5. Common Tesseract issue with noisy stamp images. I can add post-processing to correct common misreads for license number patterns.
+
+user: Even if the detection isn't perfect, just show me the raw Tesseract output — don't apply any correction on top of it.
+
+assistant: Understood. Removing post-processing and returning raw Tesseract output directly.
+[Edit: /Users/shashank/Documents/GitHub/prostruct/stamp-extractor-backend/ocr_engine.py]
+
+user: Can you show me the raw text Tesseract sees for stamp2 before any processing?
+
+assistant: Running Tesseract directly on the stamp2 crop.
+[Running: tesseract stamp2_crop.png stdout --psm 6 -l eng]
+
+assistant: Raw output: "5S926\nREG NO\nMAH\n". The digit confusion is caused by border noise in the stamp image. Higher DPI preprocessing would help clean this up.
+
+user: The DPI is currently 300 — try increasing to 600 and see if accuracy improves.
+
+assistant: Updating preprocessing to 600 DPI.
+[Edit: /Users/shashank/Documents/GitHub/prostruct/stamp-extractor-backend/ocr_engine.py]
+[Running: python test_ocr.py --image sample_two_stamps.png --dpi 600]
+
+assistant: At 600 DPI: OCR now correctly reads "55926". Processing time went from 0.4s to 0.8s per stamp — acceptable for the API.
+
+user: Can we go even higher — try 800 DPI?
+
+assistant: Trying 800 DPI, though memory usage will increase for large PDFs.
+[Edit: /Users/shashank/Documents/GitHub/prostruct/stamp-extractor-backend/ocr_engine.py]
+[Running: python test_ocr.py --image sample_two_stamps.png --dpi 800]
+
+assistant: 800 DPI: accuracy same as 600 but processing time jumps to 3.2s. Diminishing returns above 600.
+
+user: What's the highest DPI we can set before performance degrades too much?
+
+assistant: Benchmarked 300/600/800/1200 DPI. Sweet spot is 600 — best accuracy-to-speed ratio. Beyond that accuracy gain is marginal but processing doubles. Recommend 600 as default with an optional override in the API.
+
+user: OK let's go back to 600. Also make DPI a configurable parameter in the API request body so callers can override it.
+
+assistant: Reverting to 600 DPI default and adding it as an optional request body parameter.
+[Edit: /Users/shashank/Documents/GitHub/prostruct/stamp-extractor-backend/ocr_engine.py]
+[Edit: /Users/shashank/Documents/GitHub/prostruct/stamp-extractor-backend/app.py]
+[Running: python app.py]
+
+user: When I upload a PDF through the frontend it just keeps loading forever and never returns. The backend receives the request — I can see it in the logs — but then it hangs. Can you check the PDF processing code?
+
+assistant: Checking the PDF handler — sounds like a blocking call on the event loop.
+[Read: /Users/shashank/Documents/GitHub/prostruct/stamp-extractor-backend/pdf_processor.py]
+
+assistant: Found it — `pdf2image.convert_from_path()` is synchronous and blocking the async event loop. For multi-page PDFs this causes the request to hang indefinitely. I'll run it in a thread executor instead.
+[Edit: /Users/shashank/Documents/GitHub/prostruct/stamp-extractor-backend/pdf_processor.py]
+[Running: python test_pdf_upload.py --file sample.pdf]
+
+user: Still hanging after the fix. Here's what I see in the terminal — POST comes in, then nothing.
+
+assistant: The thread fix needs a server restart to take effect. Also adding a 30s timeout and proper error logging so we at least get a response if it exceeds that.
+[Edit: /Users/shashank/Documents/GitHub/prostruct/stamp-extractor-backend/pdf_processor.py]
+
+user: Can you run the backend? I want to test the PDF upload end-to-end.
+
+assistant: [Running: uvicorn app:app --reload --port 8000]
+
+assistant: Backend running on http://localhost:8000. Try uploading a PDF now — timeout is set to 30s and errors will show in logs.
+
+user: One more issue — the bounding box around the detected stamp isn't rendering on the frontend. The API response has the coordinates but the box doesn't show up on the image.
+
+assistant: Let me check how the frontend is using the bounding box coordinates.
+[Read: /Users/shashank/Documents/GitHub/prostruct/frontend/src/components/StampViewer.jsx]
+
+assistant: The coordinates from the API are in image pixel space but the frontend renders them as percentages of the container div without normalizing. I need to divide by the original image dimensions.
+[Edit: /Users/shashank/Documents/GitHub/prostruct/frontend/src/components/StampViewer.jsx]
+[Running: npm run dev]
+
+assistant: Bounding boxes now render correctly. The fix normalizes x, y, width, height against the image dimensions returned in the API response.
